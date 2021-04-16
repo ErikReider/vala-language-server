@@ -75,5 +75,5 @@ if get_option('plugins')
 endif
 
 if get_option('tests')
-  subdir('test')
+  subdir('tests')
 endif

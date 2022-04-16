@@ -228,6 +228,10 @@ class Vls.Server : Jsonrpc.Server {
                 call_hierarchy_outgoing_calls (client, method, id, parameters);
                 break;
 
+            case "textDocument/inlayHint":
+                show_inlay_hints (client, method, id, parameters);
+                break;
+
             default:
                 warning ("unhandled call `%s'", method);
                 return false;
@@ -351,7 +355,8 @@ class Vls.Server : Jsonrpc.Server {
                     workspaceSymbolProvider: new Variant.boolean (true),
                     renameProvider: build_dict (prepareProvider: new Variant.boolean (true)),
                     codeLensProvider: build_dict (resolveProvider: new Variant.boolean (false)),
-                    callHierarchyProvider: new Variant.boolean (true)
+                    callHierarchyProvider: new Variant.boolean (true),
+                    inlayHintProvider: new Variant.boolean (true)
                 ),
                 serverInfo: build_dict (
                     name: new Variant.string ("Vala Language Server"),
@@ -2091,6 +2096,46 @@ class Vls.Server : Jsonrpc.Server {
                 outgoing_va += Util.object_to_variant (outgoing_call);
             Vala.CodeContext.pop ();
             client.reply (id, new Variant.array (VariantType.VARDICT, outgoing_va), cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    void show_inlay_hints (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<InlayHintParams> (@params);
+
+        Vala.SourceFile? file = find_file (p.textDocument.uri);
+        if (file == null) {
+            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            reply_null (id, client, method);
+            return;
+        }
+
+        var query = new NodeSearch (file, p.range.start, true, p.range.end, false);
+        if (query.result.is_empty) {
+            debug ("[%s] nothing found at %s", method, p.range.to_string ());
+            reply_null (id, client, method);
+            return;
+        }
+
+        Vala.CodeNode result = get_best (query, file);
+
+        if (!(result is Vala.Expression)) {
+            debug ("[%s] no expression found at %s", method, p.range.to_string ());
+            reply_null (id, client, method);
+            return;
+        }
+
+        try {
+            Variant[] array = {};
+            array += Util.object_to_variant (new InlayHint () {
+                position = p.range.start,
+                label = "hint",
+                kind = InlayHintKind.PARAMETER,
+                tooltip = "a tooltip"
+            });
+            debug ("[%s] sending over %d inlay hints", method, array.length);
+            client.reply (id, new Variant.array (VariantType.VARDICT, array), cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
